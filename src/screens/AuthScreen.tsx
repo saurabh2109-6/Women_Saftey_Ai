@@ -1,163 +1,355 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Shield, Mail, Phone, ArrowRight } from 'lucide-react';
+import { Shield, Mail, Phone, Lock, User, ArrowRight, CheckCircle } from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
-  const { login } = useApp();
-  const [method, setMethod] = useState<'options' | 'email' | 'phone'>('options');
+  const { login, setCurrentScreen } = useApp();
+  const [view, setView] = useState<'login' | 'register' | 'otp'>('login');
+  
+  // Form states
   const [name, setName] = useState('');
-  const [inputValue, setInputValue] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  
+  // Notification states
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [simulatedOtp, setSimulatedOtp] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const API_BASE = `http://${window.location.hostname}:5000`;
+
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setError('Please enter your name');
+    if (!name || !email || !phone || !password) {
+      setError('Please fill in all fields.');
       return;
     }
-    if (!inputValue.trim()) {
-      setError(`Please enter your ${method === 'email' ? 'email' : 'phone number'}`);
-      return;
-    }
+    setError('');
+    setLoading(true);
 
-    login(
-      name,
-      method === 'phone' ? inputValue : '+91 99887 76655',
-      method === 'email' ? inputValue : 'user@safeshield.ai'
-    );
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, phone })
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        setView('otp');
+        if (data.simulated && data.otp) {
+          setSimulatedOtp(data.otp);
+        }
+      } else {
+        setError(data.error || 'Registration failed.');
+      }
+    } catch (err) {
+      setError('Connection error. Is the server running?');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGoogleLogin = () => {
-    login('Riya Sharma', '+91 91234 56789', 'riya.sharma@gmail.com');
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode) {
+      setError('Please enter the OTP verification code.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: otpCode })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        // Automatically log in on successful verification
+        login(data.user);
+        setCurrentScreen('home');
+      } else {
+        setError(data.error || 'Invalid OTP code.');
+      }
+    } catch (err) {
+      setError('Verification connection failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        login(data.user);
+        setCurrentScreen('home');
+      } else {
+        setError(data.error || 'Invalid credentials.');
+      }
+    } catch (err) {
+      setError('Connection failed. Verify server is running.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', padding: '10px 0' }}>
       
       {/* Brand Header */}
-      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
         <div style={{
-          width: '72px',
-          height: '72px',
-          borderRadius: '24px',
+          width: '64px',
+          height: '64px',
+          borderRadius: '20px',
           background: 'linear-gradient(135deg, #f43f5e 0%, #be123c 100%)',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(244, 63, 94, 0.4)',
-          marginBottom: '16px'
+          boxShadow: '0 8px 24px rgba(244, 63, 94, 0.35)',
+          marginBottom: '12px'
         }}>
-          <Shield size={36} style={{ color: 'white' }} />
+          <Shield size={32} style={{ color: 'white' }} />
         </div>
-        <h1 style={{ fontSize: '26px', fontWeight: '800', color: '#f8fafc', letterSpacing: '-0.02em', marginBottom: '6px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: '800', color: '#f8fafc', letterSpacing: '-0.02em', marginBottom: '4px' }}>
           SafeShield AI
         </h1>
-        <p style={{ fontSize: '13px', color: '#94a3b8', padding: '0 20px', lineHeight: '1.5' }}>
-          Intelligent Safety & Emergency Response Assistant
+        <p style={{ fontSize: '12px', color: '#94a3b8', padding: '0 10px', lineHeight: '1.4' }}>
+          Intelligent Guard, OTP Security & Professional Help
         </p>
       </div>
 
-      {method === 'options' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* VIEW 1: Login Form */}
+      {view === 'login' && (
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#f8fafc', marginBottom: '2px', textAlign: 'center' }}>
+            Sign In to your Safeguard
+          </h3>
           
-          <button
-            className="btn-primary"
-            onClick={() => setMethod('email')}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
-          >
-            <Mail size={18} />
-            <span>Continue with Email</span>
-          </button>
-
-          <button
-            className="btn-secondary"
-            onClick={() => setMethod('phone')}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
-          >
-            <Phone size={18} style={{ color: '#10b981' }} />
-            <span>Use Phone Number</span>
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', margin: '14px 0' }}>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-            <span style={{ padding: '0 10px', fontSize: '11px', color: '#64748b', fontWeight: '600' }}>OR</span>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#94a3b8', marginBottom: '4px' }}>
+              Email Address
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Mail size={14} style={{ position: 'absolute', left: '12px', top: '12px', color: '#64748b' }} />
+              <input
+                type="email"
+                className="form-input"
+                placeholder="riya@gmail.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '12px' }}
+                required
+              />
+            </div>
           </div>
 
-          <button
-            className="btn-secondary"
-            onClick={handleGoogleLogin}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255,255,255,0.1)'
-            }}
-          >
-            <svg style={{ width: '18px', height: '18px' }} viewBox="0 0 24 24">
-              <path
-                fill="#EA4335"
-                d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.58 15.01 1 12 1 7.24 1 3.2 3.8 1.25 7.91l3.87 3C6.07 7.74 8.78 5.04 12 5.04z"
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#94a3b8', marginBottom: '4px' }}>
+              Password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={14} style={{ position: 'absolute', left: '12px', top: '12px', color: '#64748b' }} />
+              <input
+                type="password"
+                className="form-input"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '12px' }}
+                required
               />
-              <path
-                fill="#4285F4"
-                d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.9c2.18-2.01 3.7-4.99 3.7-8.63z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.12 14.59c-.25-.74-.39-1.53-.39-2.35s.14-1.61.39-2.35L1.25 6.9C.45 8.52 0 10.32 0 12s.45 3.48 1.25 5.1l3.87-3.01z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.9c-1.1.74-2.52 1.18-4.23 1.18-3.22 0-5.93-2.7-6.88-5.87l-3.87 3A11.96 11.96 0 0012 23z"
-              />
-            </svg>
-            <span style={{ color: '#f8fafc' }}>Sign In with Google</span>
+            </div>
+          </div>
+
+          {error && <p style={{ fontSize: '11px', color: '#f43f5e', fontWeight: '600', textAlign: 'center' }}>⚠️ {error}</p>}
+
+          <button type="submit" disabled={loading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '4px' }}>
+            <span>{loading ? 'Signing In...' : 'Login'}</span>
+            <ArrowRight size={16} />
           </button>
 
-          <p style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', marginTop: '20px', lineHeight: '1.4' }}>
-            By continuing, you agree to allow SafeShield to access necessary device safety sensors for automated threat detection.
+          <p style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '6px' }}>
+            New user?{' '}
+            <span 
+              onClick={() => { setView('register'); setError(''); }} 
+              style={{ color: '#f43f5e', cursor: 'pointer', fontWeight: '700', textDecoration: 'underline' }}
+            >
+              Create Account
+            </span>
           </p>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        </form>
+      )}
+
+      {/* VIEW 2: Register Form */}
+      {view === 'register' && (
+        <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#f8fafc', marginBottom: '2px', textAlign: 'center' }}>
+            Register Safety Account
+          </h3>
+          
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#94a3b8', marginBottom: '6px' }}>
-              Your Full Name
+            <label style={{ display: 'block', fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', marginBottom: '3px' }}>
+              Full Name
+            </label>
+            <div style={{ position: 'relative' }}>
+              <User size={13} style={{ position: 'absolute', left: '12px', top: '11px', color: '#64748b' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Riya Sharma"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '11.5px', padding: '8px 12px 8px 36px' }}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', marginBottom: '3px' }}>
+              Email Address (For OTP Verification)
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Mail size={13} style={{ position: 'absolute', left: '12px', top: '11px', color: '#64748b' }} />
+              <input
+                type="email"
+                className="form-input"
+                placeholder="riya.sharma@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '11.5px', padding: '8px 12px 8px 36px' }}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', marginBottom: '3px' }}>
+              Mobile Phone
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Phone size={13} style={{ position: 'absolute', left: '12px', top: '11px', color: '#64748b' }} />
+              <input
+                type="tel"
+                className="form-input"
+                placeholder="+91 98765 43210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '11.5px', padding: '8px 12px 8px 36px' }}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '10.5px', fontWeight: '600', color: '#94a3b8', marginBottom: '3px' }}>
+              Create Password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={13} style={{ position: 'absolute', left: '12px', top: '11px', color: '#64748b' }} />
+              <input
+                type="password"
+                className="form-input"
+                placeholder="Min 6 characters"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ paddingLeft: '36px', fontSize: '11.5px', padding: '8px 12px 8px 36px' }}
+                required
+              />
+            </div>
+          </div>
+
+          {error && <p style={{ fontSize: '11px', color: '#f43f5e', fontWeight: '600', textAlign: 'center' }}>⚠️ {error}</p>}
+
+          <button type="submit" disabled={loading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '4px', padding: '10px' }}>
+            <span>{loading ? 'Sending OTP...' : 'Register & Send OTP'}</span>
+            <ArrowRight size={15} />
+          </button>
+
+          <p style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '4px' }}>
+            Already registered?{' '}
+            <span 
+              onClick={() => { setView('login'); setError(''); }} 
+              style={{ color: '#f43f5e', cursor: 'pointer', fontWeight: '700', textDecoration: 'underline' }}
+            >
+              Sign In
+            </span>
+          </p>
+        </form>
+      )}
+
+      {/* VIEW 3: OTP Verification Form */}
+      {view === 'otp' && (
+        <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+            <CheckCircle size={32} style={{ color: '#10b981', display: 'inline-block', marginBottom: '8px' }} />
+            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#f8fafc' }}>Verify your Email</h3>
+            <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>
+              We sent a 6-digit OTP code to <strong>{email}</strong>.
+            </p>
+          </div>
+
+          {simulatedOtp && (
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.08)',
+              border: '1px dashed rgba(16, 185, 129, 0.3)',
+              borderRadius: '8px',
+              padding: '10px',
+              textAlign: 'center'
+            }}>
+              <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 'bold', display: 'block' }}>SIMULATED OTP CODE:</span>
+              <span style={{ fontSize: '20px', fontWeight: '800', color: '#10b981', letterSpacing: '4px' }}>{simulatedOtp}</span>
+              <span style={{ fontSize: '9px', color: '#64748b', display: 'block', marginTop: '2px' }}>Copy this code to verify instantly!</span>
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>
+              Enter 6-Digit OTP
             </label>
             <input
               type="text"
+              maxLength={6}
               className="form-input"
-              placeholder="e.g. Priyanjali Sen"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
+              placeholder="000000"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+              style={{
+                textAlign: 'center',
+                fontSize: '22px',
+                letterSpacing: '8px',
+                fontWeight: '800',
+                padding: '8px 12px'
+              }}
+              required
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#94a3b8', marginBottom: '6px' }}>
-              {method === 'email' ? 'Email Address' : 'Phone Number'}
-            </label>
-            <input
-              type={method === 'email' ? 'email' : 'tel'}
-              className="form-input"
-              placeholder={method === 'email' ? 'you@example.com' : 'e.g. +91 98765 43210'}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-            />
-          </div>
+          {error && <p style={{ fontSize: '11px', color: '#f43f5e', fontWeight: '600', textAlign: 'center' }}>⚠️ {error}</p>}
 
-          {error && (
-            <p style={{ fontSize: '12px', color: '#f43f5e', fontWeight: '500', textAlign: 'center' }}>
-              ⚠️ {error}
-            </p>
-          )}
-
-          <button type="submit" className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
-            <span>Sign In</span>
+          <button type="submit" disabled={loading} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '4px' }}>
+            <span>{loading ? 'Verifying...' : 'Verify & Setup Dashboard'}</span>
             <ArrowRight size={16} />
           </button>
 
@@ -165,15 +357,17 @@ export const AuthScreen: React.FC = () => {
             type="button"
             className="btn-secondary"
             onClick={() => {
-              setMethod('options');
+              setView('register');
               setError('');
+              setSimulatedOtp(null);
             }}
-            style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: '12px', textDecoration: 'underline' }}
+            style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: '11px', textDecoration: 'underline' }}
           >
-            Back to options
+            Back to registration
           </button>
         </form>
       )}
+
     </div>
   );
 };

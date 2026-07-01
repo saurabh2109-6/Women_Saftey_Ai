@@ -75,7 +75,7 @@ interface AppContextType {
   setCurrentScreen: (screen: 'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin' | 'guard') => void;
 
   user: UserProfile | null;
-  login: (name: string, phone: string, email: string) => void;
+  login: (user: UserProfile) => void;
   logout: () => void;
   
   // Emergency System
@@ -156,33 +156,7 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Initial mock data
-const INITIAL_CONTACTS: Contact[] = [
-  {
-    id: '1',
-    name: 'Mom (Sarah)',
-    phone: '+91 98765 43210',
-    relation: 'Parent',
-    priority: 'High',
-    messageTemplate: 'SafeShield ALERT! I am in danger, my current location is: {loc}. Please help me!',
-  },
-  {
-    id: '2',
-    name: 'Dad (Robert)',
-    phone: '+91 98765 43211',
-    relation: 'Parent',
-    priority: 'High',
-    messageTemplate: 'Emergency! SafeShield detected abnormal movement. Tracker link: {loc}',
-  },
-  {
-    id: '3',
-    name: 'Inspector Verma (Local SOS)',
-    phone: '112',
-    relation: 'Police',
-    priority: 'High',
-    messageTemplate: 'SOS Beacon: SafeShield emergency alert broadcast at {loc}. User needs assistance.',
-  }
-];
+
 
 const INITIAL_VOLUNTEERS: Volunteer[] = [
   { id: 'v1', name: 'Aman (150m away)', distance: '150m', lat: 28.6145, lng: 77.2095, accepted: false },
@@ -206,10 +180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sosTriggerSource, setSosTriggerSource] = useState('Manual Button');
 
   // Configuration
-  const [contacts, setContacts] = useState<Contact[]>(() => {
-    const saved = localStorage.getItem('safeshield_contacts');
-    return saved ? JSON.parse(saved) : INITIAL_CONTACTS;
-  });
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [voiceKeywords, setVoiceKeywords] = useState<string[]>(['help me', 'safeshield', 'bachao', 'save me', 'leave me alone']);
   const [audioSensitivity, setAudioSensitivity] = useState(65);
   const [shakeThreshold, setShakeThreshold] = useState(50);
@@ -229,15 +200,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [threatScore, setThreatScore] = useState(0);
 
   // Lists
-  const [recordings, setRecordings] = useState<Recording[]>(() => {
-    const saved = localStorage.getItem('safeshield_recordings');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   
-  const [incidents, setIncidents] = useState<Incident[]>(() => {
-    const saved = localStorage.getItem('safeshield_incidents');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   
   const [volunteers, setVolunteers] = useState<Volunteer[]>(INITIAL_VOLUNTEERS);
 
@@ -287,6 +252,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [contacts]);
 
   useEffect(() => {
+    if (!user) {
+      setContacts([]);
+      setRecordings([]);
+      setIncidents([]);
+      return;
+    }
+
+    const syncFromDatabase = async () => {
+      try {
+        // 1. Sync Contacts
+        const contactsRes = await fetch(`${API_BASE}/api/contacts?email=${encodeURIComponent(user.email)}`);
+        const contactsData = await contactsRes.json();
+        if (Array.isArray(contactsData)) {
+          const formatted = contactsData.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            phone: c.phone,
+            relation: c.relation,
+            priority: c.priority,
+            messageTemplate: c.message_template
+          }));
+          setContacts(formatted);
+        }
+
+        // 2. Sync Recordings
+        const recordingsRes = await fetch(`${API_BASE}/api/recordings?email=${encodeURIComponent(user.email)}`);
+        const recordingsData = await recordingsRes.json();
+        if (Array.isArray(recordingsData)) {
+          setRecordings(recordingsData);
+        }
+
+        // 3. Sync Incidents
+        const incidentsRes = await fetch(`${API_BASE}/api/incidents?email=${encodeURIComponent(user.email)}`);
+        const incidentsData = await incidentsRes.json();
+        if (Array.isArray(incidentsData)) {
+          const formatted = incidentsData.map((i: any) => ({
+            id: i.id,
+            date: i.date,
+            time: i.time,
+            status: i.status,
+            threatScore: i.threat_score,
+            triggerType: i.trigger_type,
+            location: i.location
+          }));
+          setIncidents(formatted);
+        }
+        addLog(`Database: Loaded profile and synced all safety records.`);
+      } catch (err) {
+        addLog(`Database connection offline. Using local backup.`);
+      }
+    };
+
+    syncFromDatabase();
+  }, [user]);
+
+
+  useEffect(() => {
     localStorage.setItem('safeshield_bot_messages', JSON.stringify(botMessages));
   }, [botMessages]);
 
@@ -310,18 +332,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Auth Operations
-  const login = (name: string, phone: string, email: string) => {
-    const newUser: UserProfile = {
-      name,
-      phone,
-      email,
-      avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${name}`,
-      bloodGroup: 'O+',
-      medicalConditions: 'None',
-    };
-    setUser(newUser);
-    setCurrentScreen('home');
-    addLog(`User '${name}' logged in successfully.`);
+  const login = (userData: UserProfile) => {
+    setUser(userData);
+    addLog(`User '${userData.name}' logged in successfully.`);
   };
 
   const logout = () => {
@@ -331,25 +344,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Contacts CRUD
-  const addContact = (newContact: Omit<Contact, 'id'>) => {
+  const addContact = async (newContact: Omit<Contact, 'id'>) => {
     const contact: Contact = {
       ...newContact,
-      id: Date.now().toString(),
+      id: 'c_' + Date.now().toString(),
     };
     setContacts(prev => [...prev, contact]);
-    addLog(`Contact '${contact.name}' added.`);
+    addLog(`Contact '${contact.name}' added locally.`);
+
+    if (user) {
+      try {
+        await fetch(`${API_BASE}/api/contacts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: contact.id,
+            user_email: user.email,
+            name: contact.name,
+            phone: contact.phone,
+            relation: contact.relation,
+            priority: contact.priority,
+            message_template: contact.messageTemplate
+          })
+        });
+        addLog(`Database: Saved contact '${contact.name}'.`);
+      } catch (err) {
+        console.error('Failed to sync added contact to DB:', err);
+      }
+    }
   };
 
-  const updateContact = (updatedContact: Contact) => {
+  const updateContact = async (updatedContact: Contact) => {
     setContacts(prev => prev.map(c => c.id === updatedContact.id ? updatedContact : c));
-    addLog(`Contact '${updatedContact.name}' updated.`);
+    addLog(`Contact '${updatedContact.name}' updated locally.`);
+
+    if (user) {
+      try {
+        await fetch(`${API_BASE}/api/contacts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: updatedContact.id,
+            user_email: user.email,
+            name: updatedContact.name,
+            phone: updatedContact.phone,
+            relation: updatedContact.relation,
+            priority: updatedContact.priority,
+            message_template: updatedContact.messageTemplate
+          })
+        });
+        addLog(`Database: Updated contact '${updatedContact.name}'.`);
+      } catch (err) {
+        console.error('Failed to sync updated contact to DB:', err);
+      }
+    }
   };
 
-  const deleteContact = (id: string) => {
+  const deleteContact = async (id: string) => {
     const contact = contacts.find(c => c.id === id);
     setContacts(prev => prev.filter(c => c.id !== id));
     if (contact) addLog(`Contact '${contact.name}' deleted.`);
+
+    if (user) {
+      try {
+        await fetch(`${API_BASE}/api/contacts/${id}?email=${encodeURIComponent(user.email)}`, {
+          method: 'DELETE'
+        });
+        addLog(`Database: Removed contact.`);
+      } catch (err) {
+        console.error('Failed to sync deleted contact to DB:', err);
+      }
+    }
   };
+
 
   // Threat Engine Score calculation
   useEffect(() => {
@@ -496,7 +563,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Create a new incident entry
     const newIncident: Incident = {
-      id: Date.now().toString(),
+      id: 'i_' + Date.now().toString(),
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString(),
       status: 'active',
@@ -506,6 +573,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setIncidents(prev => [newIncident, ...prev]);
+
+    if (user) {
+      try {
+        await fetch(`${API_BASE}/api/incidents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newIncident.id,
+            user_email: user.email,
+            date: newIncident.date,
+            time: newIncident.time,
+            status: newIncident.status,
+            threat_score: newIncident.threatScore,
+            trigger_type: newIncident.triggerType,
+            location: newIncident.location
+          })
+        });
+        addLog(`Database: Logged active SOS incident.`);
+      } catch (err) {
+        console.error('Failed to sync incident to DB:', err);
+      }
+    }
+
 
     // Simulate real-time volunteer notifications nearby
     addLog(`Community Alert: Broadcasting SOS to local SafeShield network (Radius: 500m)...`);
@@ -529,10 +619,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addLog('Emergency resolved. System back to normal armed mode.');
   };
 
-  const resolveIncident = (id: string) => {
+  const resolveIncident = async (id: string) => {
     setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status: 'resolved' } : inc));
-    addLog(`Incident #${id.substring(id.length - 4)} marked resolved by Admin.`);
+    addLog(`Incident #${id.substring(id.length - 4)} marked resolved.`);
+
+    try {
+      await fetch(`${API_BASE}/api/incidents/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved' })
+      });
+      addLog(`Database: Marked incident #${id.substring(id.length - 4)} resolved.`);
+    } catch (err) {
+      console.error('Failed to sync resolved incident to DB:', err);
+    }
   };
+
 
   const simulateSignal = (signal: keyof SafetySignals, val: boolean) => {
     setSignals(prev => ({ ...prev, [signal]: val }));
@@ -561,10 +663,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const addRecording = (rec: Recording) => {
+  const addRecording = async (rec: Recording) => {
     setRecordings(prev => [rec, ...prev]);
-    addLog(`Secure Audio Backup: Uploaded file '${rec.title}' (${rec.duration}) to Firebase storage.`);
+    addLog(`Secure Audio Backup: Saved audio backup locally.`);
+
+    if (user) {
+      try {
+        await fetch(`${API_BASE}/api/recordings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: rec.id,
+            user_email: user.email,
+            date: rec.date,
+            time: rec.time,
+            duration: rec.duration,
+            title: rec.title,
+            src: rec.src
+          })
+        });
+        addLog(`Database: Uploaded secure recording '${rec.title}'.`);
+      } catch (err) {
+        console.error('Failed to sync recording to DB:', err);
+      }
+    }
   };
+
 
   // Fake Call handlers
   const triggerFakeCall = (delay: number) => {
