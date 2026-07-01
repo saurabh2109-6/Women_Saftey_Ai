@@ -19,6 +19,14 @@ export interface Recording {
   title: string;
 }
 
+export interface BotMessage {
+  id: string;
+  sender: 'user' | 'bot';
+  text: string;
+  timestamp: string;
+}
+
+
 export interface Incident {
   id: string;
   date: string;
@@ -63,8 +71,9 @@ export interface SafetySignals {
 }
 
 interface AppContextType {
-  currentScreen: 'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin';
-  setCurrentScreen: (screen: 'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin') => void;
+  currentScreen: 'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin' | 'guard';
+  setCurrentScreen: (screen: 'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin' | 'guard') => void;
+
   user: UserProfile | null;
   login: (name: string, phone: string, email: string) => void;
   logout: () => void;
@@ -135,8 +144,15 @@ interface AppContextType {
   acceptFakeCall: () => void;
   declineFakeCall: () => void;
   isFakeCallRinging: boolean;
+
   isFakeCallActive: boolean;
+  
+  // AI Guard Bot
+  botMessages: BotMessage[];
+  sendBotMessage: (text: string) => Promise<void>;
+  clearBotMessages: () => void;
 }
+
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -175,7 +191,8 @@ const INITIAL_VOLUNTEERS: Volunteer[] = [
 ];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentScreen, setCurrentScreen] = useState<'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin'>('auth');
+  const [currentScreen, setCurrentScreen] = useState<'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin' | 'guard'>('auth');
+
   const [user, setUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('safeshield_user');
     return saved ? JSON.parse(saved) : null;
@@ -237,6 +254,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isFakeCallRinging, setIsFakeCallRinging] = useState(false);
   const [isFakeCallActive, setIsFakeCallActive] = useState(false);
 
+
+  // AI Guard Bot State
+  const [botMessages, setBotMessages] = useState<BotMessage[]>(() => {
+    const saved = localStorage.getItem('safeshield_bot_messages');
+    if (saved) return JSON.parse(saved);
+    return [
+      {
+        id: 'welcome',
+        sender: 'bot',
+        text: 'Hello! I am your AI Bodyguard & Legal Advisor. How can I help you today? You can describe any safety threat, stalker issue, or legal concern, and I will outline your options, laws, and professional help contacts.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ];
+  });
+
+
   // Refs for timers
   const countdownIntervalRef = useRef<any>(null);
   const fakeCallIntervalRef = useRef<any>(null);
@@ -250,6 +283,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('safeshield_contacts', JSON.stringify(contacts));
   }, [contacts]);
+
+  useEffect(() => {
+    localStorage.setItem('safeshield_bot_messages', JSON.stringify(botMessages));
+  }, [botMessages]);
+
 
   useEffect(() => {
     localStorage.setItem('safeshield_recordings', JSON.stringify(recordings));
@@ -547,6 +585,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addLog(`Fake Call dismissed.`);
   };
 
+  const sendBotMessage = async (text: string) => {
+    const userMsg: BotMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    setBotMessages(prev => [...prev, userMsg]);
+    addLog(`AI Bot: User sent query about safety/legal concerns.`);
+
+    const typingId = 'typing-' + Date.now();
+    const typingMsg: BotMessage = {
+      id: typingId,
+      sender: 'bot',
+      text: 'Thinking...',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setBotMessages(prev => [...prev, typingMsg]);
+
+    try {
+      const response = await fetch('http://localhost:5000/api/chat-bot', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: text })
+      });
+      
+      const data = await response.json();
+      
+      setBotMessages(prev => prev.filter(m => m.id !== typingId).concat({
+        id: Date.now().toString(),
+        sender: 'bot',
+        text: data.reply || 'Sorry, I am having trouble connecting to my cognitive models.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }));
+    } catch (err) {
+      // Offline mock response depending on common keywords
+      const lower = text.toLowerCase();
+      let mockReply = '';
+      if (lower.includes('stalk') || lower.includes('follow') || lower.includes('picha')) {
+        mockReply = `🚨 **Stalking / Harassment Warning (Indian Penal Code Section 354D):**\nIf someone is repeatedly following or contacting you online/offline against your will:\n\n1. **Take Legal Action:** You can file a physical FIR or an online complaint at [cybercrime.gov.in](https://cybercrime.gov.in) (if online stalking).\n2. **Immediate Help:** Call the **Women's Helpline (1091)** or **Emergency Services (112)**.\n3. **Safety Advice:** Inform family/friends, change your routes, and check our Legal/Help Directory to contact a recommended **harassment lawyer** immediately.`;
+      } else if (lower.includes('lawyer') || lower.includes('advocate') || lower.includes('vakeel')) {
+        mockReply = `⚖️ **Legal Assistance Available:**\nI can recommend verified lawyers specializing in women's rights and criminal defense. Please visit the **Directory Tab** to browse lawyers, or let me know if you'd like tips on how to prepare for your first lawyer consultation.`;
+      } else if (lower.includes('doctor') || lower.includes('hospital') || lower.includes('chot') || lower.includes('hurt')) {
+        mockReply = `🏥 **Medical Support:**\nIf you have been physically hurt or need medical/forensic assistance:\n\n1. Go to the nearest government hospital (they are legally mandated to treat emergency victims immediately).\n2. Reach out to one of the verified **Doctors / Medical Centers** listed in our Help Directory.\n3. Call **108** for ambulance services.`;
+      } else {
+        mockReply = `🛡️ **AI Personal Bodyguard active:**\nI'm listening. If you are experiencing a legal or safety problem, please tell me. I can:\n* Provide details of relevant **laws and rights** (stalking, domestic threat, etc.).\n* Outline options for **filing a police complaint / FIR**.\n* Recommend local **Lawyers, Counselors, and Doctors** to support your case.`;
+      }
+
+      setBotMessages(prev => prev.filter(m => m.id !== typingId).concat({
+        id: Date.now().toString(),
+        sender: 'bot',
+        text: mockReply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }));
+    }
+  };
+
+  const clearBotMessages = () => {
+    setBotMessages([
+      {
+        id: 'welcome',
+        sender: 'bot',
+        text: 'Hello! I am your AI Bodyguard & Legal Advisor. How can I help you today? You can describe any safety threat, stalker issue, or legal concern, and I will outline your options, laws, and professional help contacts.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+  };
+
+
   return (
     <AppContext.Provider
       value={{
@@ -600,9 +710,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         acceptFakeCall,
         declineFakeCall,
         isFakeCallRinging,
+
         isFakeCallActive,
+        botMessages,
+        sendBotMessage,
+        clearBotMessages,
       }}
     >
+
       {children}
     </AppContext.Provider>
   );

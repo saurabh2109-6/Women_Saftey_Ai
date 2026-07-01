@@ -1,11 +1,12 @@
 import { useApp } from '../context/AppContext';
-import { Home, Users, FolderHeart, Settings, Wifi, WifiOff, Battery } from 'lucide-react';
+import { Home, Users, FolderHeart, Settings, Shield, Wifi, WifiOff, Battery } from 'lucide-react';
 import { AuthScreen } from '../screens/AuthScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ContactsScreen } from '../screens/ContactsScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
+import { GuardBotScreen } from '../screens/GuardBotScreen';
 import { EmergencyOverlay } from './EmergencyOverlay';
 import { FakeCallOverlay } from './FakeCallOverlay';
 import { AudioThreatDetector } from './AudioThreatDetector';
@@ -38,6 +39,8 @@ export const PhoneEmulator: React.FC = () => {
         return <SettingsScreen />;
       case 'admin':
         return <AdminDashboardScreen />;
+      case 'guard':
+        return <GuardBotScreen />;
       default:
         return <HomeScreen />;
     }
@@ -140,26 +143,32 @@ export const PhoneEmulator: React.FC = () => {
       {showNav && (
         <div className="bottom-nav">
           <div className={`nav-item ${currentScreen === 'home' ? 'active' : ''}`} onClick={() => setCurrentScreen('home')}>
-            <Home size={20} />
-            <span>SOS Home</span>
+            <Home size={18} />
+            <span>Home</span>
+          </div>
+          
+          <div className={`nav-item ${currentScreen === 'guard' ? 'active' : ''}`} onClick={() => setCurrentScreen('guard')}>
+            <Shield size={18} />
+            <span>AI Bot</span>
           </div>
           
           <div className={`nav-item ${currentScreen === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentScreen('contacts')}>
-            <Users size={20} />
+            <Users size={18} />
             <span>Contacts</span>
           </div>
           
           <div className={`nav-item ${currentScreen === 'dashboard' ? 'active' : ''}`} onClick={() => setCurrentScreen('dashboard')}>
-            <FolderHeart size={20} />
+            <FolderHeart size={18} />
             <span>Evidence</span>
           </div>
           
           <div className={`nav-item ${currentScreen === 'settings' ? 'active' : ''}`} onClick={() => setCurrentScreen('settings')}>
-            <Settings size={20} />
+            <Settings size={18} />
             <span>Settings</span>
           </div>
         </div>
       )}
+
 
       {/* Home Indicator Bar */}
       <div
