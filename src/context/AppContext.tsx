@@ -192,6 +192,8 @@ const INITIAL_VOLUNTEERS: Volunteer[] = [
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentScreen, setCurrentScreen] = useState<'auth' | 'home' | 'contacts' | 'dashboard' | 'settings' | 'admin' | 'guard'>('auth');
+  const API_BASE = `http://${window.location.hostname}:5000`;
+
 
   const [user, setUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('safeshield_user');
@@ -448,7 +450,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (networkStatus === 'online') {
       addLog(`Twilio Gateway: Contacting server to dispatch SMS alerts...`);
       try {
-        const response = await fetch('http://localhost:5000/api/send-sos', {
+        const response = await fetch(`${API_BASE}/api/send-sos`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -479,7 +481,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
       } catch (err: any) {
-        addLog(`Twilio connection error: Could not reach backend server at http://localhost:5000. Make sure your backend server is running.`);
+        addLog(`Twilio connection error: Could not reach backend server at ${API_BASE}. Make sure your server is running.`);
         // Fallback logs so simulation doesn't stall
         alerts.forEach(alert => {
           addLog(`Offline fallback logs: SMS simulated to ${alert.name} (${alert.phone})`);
@@ -606,7 +608,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBotMessages(prev => [...prev, typingMsg]);
 
     try {
-      const response = await fetch('http://localhost:5000/api/chat-bot', {
+      const response = await fetch(`${API_BASE}/api/chat-bot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
